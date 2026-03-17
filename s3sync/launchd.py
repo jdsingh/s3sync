@@ -12,8 +12,19 @@ LOCK_PATH = Path.home() / ".config" / "s3sync" / "daemon.lock"
 LOG_DIR = Path.home() / "Library" / "Logs" / "s3sync"
 
 
-def _plist_content(python_path: str) -> str:
+def _plist_content(executable: str) -> str:
     log_dir = str(LOG_DIR)
+    if getattr(sys, "frozen", False):
+        # PyInstaller binary: invoke the binary directly with the subcommand
+        program_args = f"        <string>{executable}</string>\n        <string>daemon</string>"
+    else:
+        # Running from source: use `python -m s3sync.cli daemon`
+        program_args = (
+            f"        <string>{executable}</string>\n"
+            f"        <string>-m</string>\n"
+            f"        <string>s3sync.cli</string>\n"
+            f"        <string>daemon</string>"
+        )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -23,10 +34,7 @@ def _plist_content(python_path: str) -> str:
     <string>{PLIST_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{python_path}</string>
-        <string>-m</string>
-        <string>s3sync.cli</string>
-        <string>daemon</string>
+{program_args}
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -69,12 +77,16 @@ def stop() -> None:
 
 
 def is_running() -> bool:
-    result = subprocess.run(
-        ["launchctl", "list", PLIST_LABEL],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            ["launchctl", "list", PLIST_LABEL],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def _launchctl(action: str, plist: Path) -> None:
