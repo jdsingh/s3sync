@@ -48,5 +48,45 @@ def test_debounce_coalesces_rapid_events(tmp_path: Path, entry: WatchEntry) -> N
     time.sleep(0.3)  # wait for debounce to fire
     handler._executor.shutdown(wait=True)
 
-    # Should have uploaded only once despite 5 events
-    assert syncer.upload.call_count <= 1
+    # Should have uploaded exactly once despite 5 rapid events
+    assert syncer.upload.call_count == 1
+
+
+def test_file_to_dir_transition_skips_upload(tmp_path: Path, entry: WatchEntry) -> None:
+    syncer = MagicMock()
+    db = MagicMock()
+    handler = FileEventHandler(
+        entry=entry, syncer=syncer, db=db, tmp_dir=tmp_path / "tmp", debounce_seconds=0.0
+    )
+
+    # Create a directory at the path instead of a file
+    d = tmp_path / "watch" / "became_dir"
+    d.mkdir()
+
+    handler._do_upload(d)
+
+    syncer.upload.assert_not_called()
+    syncer.upload_encrypted.assert_not_called()
+
+
+def test_file_to_dir_transition_deletes_when_configured(tmp_path: Path) -> None:
+    entry = WatchEntry(
+        path=tmp_path / "watch",
+        bucket="b",
+        prefix="p/",
+        delete_on_remove=True,
+    )
+    (tmp_path / "watch").mkdir()
+    syncer = MagicMock()
+    db = MagicMock()
+    handler = FileEventHandler(
+        entry=entry, syncer=syncer, db=db, tmp_dir=tmp_path / "tmp", debounce_seconds=0.0
+    )
+
+    d = tmp_path / "watch" / "became_dir"
+    d.mkdir()
+
+    handler._do_upload(d)
+
+    syncer.delete.assert_called_once()
+    db.delete.assert_called_once_with(d)
