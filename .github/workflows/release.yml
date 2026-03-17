@@ -49,7 +49,7 @@ jobs:
         id: build
         run: |
           pyinstaller \
-            --onefile \
+            --onedir \
             --name s3sync \
             --hidden-import watchdog.observers.fsevents \
             --collect-all pyrage \
@@ -98,7 +98,8 @@ jobs:
             version "${VERSION}"
 
             def install
-              bin.install "s3sync"
+              libexec.install Dir["s3sync/*"]
+              bin.write_exec_script libexec/"s3sync"
             end
 
             test do
