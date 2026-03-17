@@ -45,7 +45,8 @@ def test_debounce_coalesces_rapid_events(tmp_path: Path, entry: WatchEntry) -> N
     for _ in range(5):
         handler._schedule_upload(f)
 
-    time.sleep(0.3)  # wait for debounce to fire
+    # Wait for debounce (0.1s) + stability check (0.1s) + margin
+    time.sleep(0.6)
     handler._executor.shutdown(wait=True)
 
     # Should have uploaded exactly once despite 5 rapid events

@@ -44,6 +44,7 @@ class FileEventHandler(FileSystemEventHandler):
         self._debounce = debounce_seconds
         self._timers: dict[str, threading.Timer] = {}
         self._lock = threading.Lock()
+        self._stopped = False
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="s3sync")
 
     def on_created(self, event: FileSystemEvent) -> None:
@@ -61,6 +62,8 @@ class FileEventHandler(FileSystemEventHandler):
     def _schedule_upload(self, file: Path) -> None:
         key = str(file)
         with self._lock:
+            if self._stopped:
+                return
             if key in self._timers:
                 self._timers[key].cancel()
             timer = threading.Timer(self._debounce, self._do_upload, args=[file])
@@ -89,15 +92,12 @@ class FileEventHandler(FileSystemEventHandler):
             self._schedule_upload(file)
             return
 
-        self._executor.submit(self._upload_file, file)
+        try:
+            self._executor.submit(self._upload_file, file)
+        except RuntimeError:
+            logger.debug("Executor already shut down, dropping upload for %s", file)
 
     def _upload_file(self, file: Path) -> None:
-        try:
-            stat = file.stat()
-        except OSError as e:
-            logger.warning("Cannot stat %s: %s", file, e)
-            return
-
         try:
             if self._entry.encrypt:
                 recipients = [parse_recipient(r) for r in self._entry.age_recipients]
@@ -113,6 +113,13 @@ class FileEventHandler(FileSystemEventHandler):
                         enc_tmp.unlink()
             else:
                 self._syncer.upload(file, self._entry)
+
+            # Stat after upload so DB records the file state that was actually sent.
+            try:
+                stat = file.stat()
+            except OSError as e:
+                logger.warning("Cannot stat %s after upload: %s", file, e)
+                return
 
             self._db.upsert(SyncRecord(
                 path=file,
@@ -140,6 +147,7 @@ class FileEventHandler(FileSystemEventHandler):
     def flush(self) -> None:
         """Cancel pending timers and wait for in-flight uploads."""
         with self._lock:
+            self._stopped = True
             for timer in self._timers.values():
                 timer.cancel()
             self._timers.clear()
@@ -220,5 +228,8 @@ def _cleanup_stale_tmp(tmp_dir: Path, max_age_seconds: int = 3600) -> None:
     now = time.time()
     for f in tmp_dir.iterdir():
         if f.is_file() and (now - f.stat().st_mtime) > max_age_seconds:
-            f.unlink()
-            logger.debug("Cleaned stale temp file: %s", f)
+            try:
+                f.unlink()
+                logger.debug("Cleaned stale temp file: %s", f)
+            except OSError as e:
+                logger.warning("Could not remove stale temp file %s: %s", f, e)
