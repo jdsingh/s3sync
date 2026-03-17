@@ -102,3 +102,61 @@ def test_include_pattern_filters_files(tmp_path: Path, db: StateDB) -> None:
 
     assert syncer.upload.call_count == 1
     syncer.upload.assert_called_once_with(entry.path / "doc.pdf", entry)
+
+
+def test_changed_size_triggers_upload(tmp_path: Path, entry: WatchEntry, db: StateDB) -> None:
+    f = entry.path / "grown.txt"
+    f.write_text("new content")
+    stat = f.stat()
+
+    db.upsert(SyncRecord(
+        path=f,
+        watch_root=entry.path,
+        mtime=stat.st_mtime,   # mtime matches
+        size=stat.st_size + 99,  # but size differs
+        s3_key="p/grown.txt",
+        synced_at=time.time(),
+    ))
+
+    syncer = MagicMock()
+    run_initial_sync(entry, db, syncer, tmp_dir=tmp_path / "tmp")
+
+    syncer.upload.assert_called_once()
+
+
+def test_upload_failure_skips_db_update(tmp_path: Path, entry: WatchEntry, db: StateDB) -> None:
+    f = entry.path / "bad.txt"
+    f.write_text("data")
+
+    syncer = MagicMock()
+    syncer.upload.side_effect = RuntimeError("S3 down")
+
+    run_initial_sync(entry, db, syncer, tmp_dir=tmp_path / "tmp")
+
+    # DB must not have been updated
+    assert db.get(f) is None
+
+
+def test_encrypted_entry_uploaded_and_tracked(tmp_path: Path, db: StateDB) -> None:
+    from s3sync.crypto import generate_test_keypair
+
+    identity, recipient = generate_test_keypair()
+    entry = WatchEntry(
+        path=tmp_path / "watch",
+        bucket="b",
+        prefix="docs/",
+        encrypt=True,
+        age_recipients=[str(recipient)],
+    )
+    entry.path.mkdir()
+    f = entry.path / "secret.pdf"
+    f.write_bytes(b"confidential")
+
+    syncer = MagicMock()
+    run_initial_sync(entry, db, syncer, tmp_dir=tmp_path / "tmp")
+
+    syncer.upload_encrypted.assert_called_once()
+    record = db.get(f)
+    assert record is not None
+    assert record.encrypted is True
+    assert record.s3_key == "docs/secret.pdf.age"

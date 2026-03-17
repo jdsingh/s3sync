@@ -34,8 +34,9 @@ def run_initial_sync(
     skipped = 0
 
     for file in sorted(entry.path.rglob("*")):
-        if file.is_symlink():
-            file = file.resolve()
+        # is_file() follows symlinks; symlink targets that are dirs or broken
+        # links return False, so they are skipped. The symlink path itself is
+        # used for the S3 key so the key stays within the watched directory.
         if not file.is_file():
             continue
         if not _should_sync(file, entry):
