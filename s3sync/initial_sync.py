@@ -14,7 +14,7 @@ def _matches(filename: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(filename, p) for p in patterns)
 
 
-def _should_sync(file: Path, entry: WatchEntry) -> bool:
+def should_sync(file: Path, entry: WatchEntry) -> bool:
     name = file.name
     if _matches(name, entry.exclude):
         return False
@@ -39,7 +39,7 @@ def run_initial_sync(
         # used for the S3 key so the key stays within the watched directory.
         if not file.is_file():
             continue
-        if not _should_sync(file, entry):
+        if not should_sync(file, entry):
             logger.debug("Skipping excluded/unincluded file: %s", file)
             continue
 
@@ -92,8 +92,9 @@ def _upload_encrypted(
     from s3sync.crypto import encrypt_file, parse_recipient
 
     recipients = [parse_recipient(r) for r in entry.age_recipients]
-    enc_tmp = encrypt_file(file, recipients, tmp_dir)
+    enc_tmp: Path | None = None
     try:
+        enc_tmp = encrypt_file(file, recipients, tmp_dir)
         syncer.upload_encrypted(enc_tmp, file, entry)
         db.upsert(SyncRecord(
             path=file,
@@ -105,5 +106,5 @@ def _upload_encrypted(
             encrypted=True,
         ))
     finally:
-        if enc_tmp.exists():
+        if enc_tmp is not None and enc_tmp.exists():
             enc_tmp.unlink()

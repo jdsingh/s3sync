@@ -137,6 +137,18 @@ def test_upload_failure_skips_db_update(tmp_path: Path, entry: WatchEntry, db: S
     assert db.get(f) is None
 
 
+def test_subdirectory_files_are_walked(tmp_path: Path, entry: WatchEntry, db: StateDB) -> None:
+    subdir = entry.path / "2024" / "q1"
+    subdir.mkdir(parents=True)
+    f = subdir / "report.pdf"
+    f.write_bytes(b"quarterly")
+
+    syncer = MagicMock()
+    run_initial_sync(entry, db, syncer, tmp_dir=tmp_path / "tmp")
+
+    syncer.upload.assert_called_once_with(f, entry)
+
+
 def test_encrypted_entry_uploaded_and_tracked(tmp_path: Path, db: StateDB) -> None:
     from s3sync.crypto import generate_test_keypair
 
