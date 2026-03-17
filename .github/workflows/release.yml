@@ -98,7 +98,7 @@ jobs:
             version "${VERSION}"
 
             def install
-              libexec.install Dir["s3sync/*"]
+              libexec.install Dir["*"]
               bin.write_exec_script libexec/"s3sync"
             end
 
