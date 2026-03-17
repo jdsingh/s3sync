@@ -31,6 +31,7 @@ def decrypt_file(
     """Decrypt an .age file to dest using the given identity."""
     ciphertext = enc_path.read_bytes()
     plaintext = pyrage.decrypt(ciphertext, [identity])
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(plaintext)
 
 
