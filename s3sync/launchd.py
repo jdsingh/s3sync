@@ -12,7 +12,7 @@ LOCK_PATH = Path.home() / ".config" / "s3sync" / "daemon.lock"
 LOG_DIR = Path.home() / "Library" / "Logs" / "s3sync"
 
 
-def _plist_content(python_path: str, config_dir: Path) -> str:
+def _plist_content(python_path: str) -> str:
     log_dir = str(LOG_DIR)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -44,7 +44,7 @@ def _plist_content(python_path: str, config_dir: Path) -> str:
 def install() -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    content = _plist_content(sys.executable, LOCK_PATH.parent)
+    content = _plist_content(sys.executable)
     PLIST_PATH.write_text(content)
     logger.info("Wrote plist to %s", PLIST_PATH)
     _launchctl("load", PLIST_PATH)

@@ -61,19 +61,29 @@ def status() -> None:
     """Show daemon state and sync stats from the local DB."""
     from s3sync.state import StateDB
 
+    import datetime
+
     running = launchd.is_running()
     typer.echo(f"Daemon: {'running ✓' if running else 'stopped ✗'}")
 
-    db = StateDB(CONFIG_DIR / "state.db")
     cfg = _load_cfg()
-    for entry in cfg.watch:
-        records = db.get_by_watch_root(entry.path)
-        total_size = sum(r.size for r in records)
-        typer.echo(
-            f"\n  {entry.path}\n"
-            f"    → s3://{entry.bucket}/{entry.prefix}\n"
-            f"    files synced: {len(records)}, total size: {total_size:,} bytes"
-        )
+    with StateDB(CONFIG_DIR / "state.db") as db:
+        for entry in cfg.watch:
+            records = db.get_by_watch_root(entry.path)
+            total_size = sum(r.size for r in records)
+            last_sync = (
+                datetime.datetime.fromtimestamp(max(r.synced_at for r in records)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                if records
+                else "never"
+            )
+            typer.echo(
+                f"\n  {entry.path}\n"
+                f"    → s3://{entry.bucket}/{entry.prefix}\n"
+                f"    files synced: {len(records)}, total size: {total_size:,} bytes\n"
+                f"    last sync: {last_sync}"
+            )
 
 
 @app.command()
@@ -86,15 +96,15 @@ def sync() -> None:
 
     setup_logging()
     cfg = _load_cfg()
-    db = StateDB(CONFIG_DIR / "state.db")
     syncer = S3Syncer(region=cfg.aws.region, profile=cfg.aws.profile)
 
-    for entry in cfg.watch:
-        if not entry.path.exists():
-            typer.echo(f"Warning: watch path does not exist, skipping: {entry.path}")
-            continue
-        typer.echo(f"Syncing {entry.path} → s3://{entry.bucket}/{entry.prefix}")
-        run_initial_sync(entry, db, syncer, tmp_dir=CONFIG_DIR / "tmp")
+    with StateDB(CONFIG_DIR / "state.db") as db:
+        for entry in cfg.watch:
+            if not entry.path.exists():
+                typer.echo(f"Warning: watch path does not exist, skipping: {entry.path}")
+                continue
+            typer.echo(f"Syncing {entry.path} → s3://{entry.bucket}/{entry.prefix}")
+            run_initial_sync(entry, db, syncer, tmp_dir=CONFIG_DIR / "tmp")
 
     typer.echo("✓ Sync complete.")
 
