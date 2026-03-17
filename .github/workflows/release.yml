@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-14  # arm64 (Apple Silicon)
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" > /dev/null 2>&1; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Release ${{ steps.version.outputs.tag }} already exists — skipping."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Python
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project and PyInstaller
+        if: steps.check.outputs.skip == 'false'
+        run: pip install -e "." pyinstaller
+
+      - name: Build binary
+        if: steps.check.outputs.skip == 'false'
+        id: build
+        run: |
+          pyinstaller \
+            --onefile \
+            --name s3sync \
+            --hidden-import watchdog.observers.fsevents \
+            --collect-all pyrage \
+            s3sync/cli.py
+
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="s3sync-${VERSION}-macos-arm64.tar.gz"
+          cd dist
+          tar -czf "$ARCHIVE" s3sync
+          SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "s3sync ${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            "dist/${{ steps.build.outputs.archive }}"
+
+      - name: Update Homebrew formula
+        if: steps.check.outputs.skip == 'false'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          SHA256="${{ steps.build.outputs.sha256 }}"
+          URL="https://github.com/jdsingh/s3sync/releases/download/${TAG}/s3sync-${VERSION}-macos-arm64.tar.gz"
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/jdsingh/homebrew-repo.git"
+          cd homebrew-repo
+
+          cat > Formula/s3sync.rb << EOF
+          class S3sync < Formula
+            desc "macOS CLI + launchd daemon that watches local folders and syncs to AWS S3"
+            homepage "https://github.com/jdsingh/s3sync"
+            url "${URL}"
+            sha256 "${SHA256}"
+            version "${VERSION}"
+
+            def install
+              bin.install "s3sync"
+            end
+
+            test do
+              assert_match "s3sync", shell_output("#{bin}/s3sync --help")
+            end
+          end
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/s3sync.rb
+          git diff --staged --quiet || git commit -m "chore: update s3sync formula to ${TAG}"
+          git push
