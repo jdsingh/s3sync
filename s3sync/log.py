@@ -13,6 +13,7 @@ def setup_logging(verbose: bool = False) -> None:
     fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
     root = logging.getLogger()
+    root.handlers.clear()
     root.setLevel(level)
 
     file_handler = logging.handlers.RotatingFileHandler(
