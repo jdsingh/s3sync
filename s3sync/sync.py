@@ -34,13 +34,16 @@ class S3Syncer:
                 fn()
                 return
             except Exception as e:
-                if attempt == MAX_RETRIES:
+                if attempt >= MAX_RETRIES:
                     logger.error("%s failed after %d attempts: %s", action_name, MAX_RETRIES, e)
                     raise
                 logger.warning("%s attempt %d failed: %s — retrying in %ds", action_name, attempt, e, delay)
                 time.sleep(delay)
 
     def upload(self, local_file: Path, entry: WatchEntry) -> None:
+        if not local_file.is_file():
+            logger.warning("Skipping non-regular file: %s", local_file)
+            return
         key = _s3_key(local_file, entry, encrypted=False)
         logger.info("Uploading %s → s3://%s/%s", local_file, entry.bucket, key)
 
@@ -51,6 +54,9 @@ class S3Syncer:
         self._retry(f"upload {key}", _do)
 
     def upload_encrypted(self, enc_tmp: Path, original: Path, entry: WatchEntry) -> None:
+        if not enc_tmp.is_file():
+            logger.warning("Skipping non-regular encrypted file: %s", enc_tmp)
+            return
         key = _s3_key(original, entry, encrypted=True)
         logger.info("Uploading (encrypted) %s → s3://%s/%s", original, entry.bucket, key)
 

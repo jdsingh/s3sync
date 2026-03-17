@@ -62,9 +62,9 @@ def test_delete_file(tmp_path: Path, watch_entry: WatchEntry, aws_setup) -> None
 
 
 def test_upload_encrypted_file(tmp_path: Path, aws_setup) -> None:
-    from s3sync.crypto import generate_test_keypair, encrypt_file
+    from s3sync.crypto import generate_test_keypair, encrypt_file, decrypt_file, load_identity
 
-    _, recipient = generate_test_keypair()
+    identity, recipient = generate_test_keypair()
     f = tmp_path / "watch" / "secret.pdf"
     f.parent.mkdir(parents=True)
     f.write_bytes(b"secret content")
@@ -83,8 +83,13 @@ def test_upload_encrypted_file(tmp_path: Path, aws_setup) -> None:
     syncer = S3Syncer(region="us-east-1", profile=None)
     syncer.upload_encrypted(enc, f, entry)
 
-    obj = aws_setup.get_object(Bucket="test-bucket", Key="docs/secret.pdf.age")
-    assert len(obj["Body"].read()) > 0
+    # Verify S3 object exists at the right key, then decrypt and check plaintext.
+    downloaded = tmp_path / "downloaded.age"
+    body = aws_setup.get_object(Bucket="test-bucket", Key="docs/secret.pdf.age")["Body"].read()
+    downloaded.write_bytes(body)
+    decrypted = tmp_path / "decrypted.pdf"
+    decrypt_file(downloaded, identity, decrypted)
+    assert decrypted.read_bytes() == b"secret content"
 
 
 # ---------------------------------------------------------------------------
