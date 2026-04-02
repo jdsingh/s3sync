@@ -19,7 +19,8 @@ pip install .
 Verify the install:
 
 ```bash
-s3sync --help
+s3sync          # prints help to stdout
+s3sync --help   # same output
 ```
 
 ---

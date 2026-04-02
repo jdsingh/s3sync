@@ -10,8 +10,14 @@ from s3sync import launchd
 app = typer.Typer(
     name="s3sync",
     help="Sync local folders to AWS S3, with optional age encryption.",
-    no_args_is_help=True,
+    invoke_without_command=True,
 )
+
+
+@app.callback(invoke_without_command=True)
+def _main(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
 
 CONFIG_DIR = Path.home() / ".config" / "s3sync"
 

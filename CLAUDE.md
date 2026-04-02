@@ -46,6 +46,7 @@ The app has two runtime modes: a one-shot CLI and a persistent launchd daemon. B
 - `launchd.py` generates the plist at install time. It detects `sys.frozen` (PyInstaller) to emit `[binary, "daemon"]` vs `[python, "-m", "s3sync.cli", "daemon"]` — these must not be confused.
 - `is_running()` has a 3s timeout on `launchctl list` to avoid hanging during crash loops.
 - The `daemon` CLI command is hidden (`@app.command(hidden=True)`) — it is only invoked by launchd.
+- The Typer app uses `invoke_without_command=True` with a callback that prints help to **stdout** when no subcommand is given (Typer's default `no_args_is_help` writes to stderr).
 
 **PyInstaller distribution:**
 - Binary is built with `--onedir` (not `--onefile`) to avoid per-invocation extraction overhead (~7s cold start with `--onefile`).
